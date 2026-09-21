@@ -1,51 +1,60 @@
 # codex-jev-router
 
-An independent local bridge that lets OpenAI Codex CLI use Jev for per-turn model and reasoning-effort routing.
+Route OpenAI Codex CLI turns through Jev. Jev selects a suitable Codex model and reasoning effort for each fresh turn.
 
-This project does not depend on the `jev-router` GitHub repository. It uses the TypeSafe JavaScript SDK for Jev and a small loopback Responses API proxy for Codex.
+The bridge runs locally. It starts a loopback Responses API proxy, sends the routing context to Jev, and forwards the request to Codex. If Jev is unavailable, Codex continues with its current model and effort.
 
-## What it does
+## Prerequisites
 
-For each fresh user turn, the bridge can:
+- Node.js 20 or newer
+- OpenAI Codex CLI installed and available as `codex` on your `PATH`
+- Codex authentication configured
+- A Jev or TypeSafe API key
+- GitHub access to the [private repository](https://github.com/tiandee/codex-jev-router)
 
-1. Ask Jev which available Codex model is sufficient.
-2. Convert Jev's `reasoning_required` score into `low`, `medium`, `high`, or `max`.
-3. Rewrite `model` and `reasoning.effort` before forwarding the request.
-4. Keep the selected model and effort stable across tool-call continuations.
-5. Preserve Codex's streaming response and command-line permissions.
+The repository is private and the package is not published to npm. Each user must receive repository access before cloning it.
 
-If Jev is unavailable, the bridge fails open: it keeps the current model/effort and lets Codex continue.
+## Install from source
 
-## Install and run
+Clone the repository, install its dependencies, and create the global `codex-jev` command:
 
 ```bash
+git clone https://github.com/tiandee/codex-jev-router.git
+cd codex-jev-router
 npm install
-
-# Put the key outside the repository, for example:
-printf '%s\n' 'JEV_API_KEY=your-key' > ~/.jev-codex.env
-chmod 600 ~/.jev-codex.env
-
-cd /path/to/your/repository
-node /Users/tiandee/IqiyiProjects/codex-jev-router/bin/jev-codex.mjs \
-  --dangerously-bypass-approvals-and-sandbox
+npm link
+codex-jev --version
 ```
 
-To install this independent command without replacing the existing `jev-codex` command:
+If your GitHub account uses SSH, replace the clone URL with the SSH URL configured for your account.
+
+## Configure the Jev key
+
+Store the key outside the repository. The bridge loads `~/.jev-codex.env` automatically:
 
 ```bash
-npm link
+printf '%s\n' 'JEV_API_KEY=your_typesafe_api_key' > ~/.jev-codex.env
+chmod 600 ~/.jev-codex.env
+```
+
+You can also export `JEV_API_KEY` in the shell that starts Codex. Do not commit the key or place it in a tracked file.
+
+## Run Codex with routing
+
+Change to the project where you want to work, then start Codex through the wrapper:
+
+```bash
+cd /path/to/your/project
 codex-jev
 ```
 
-`jev-codex-bridge` remains available as a backward-compatible alias.
+The wrapper forwards normal Codex arguments, including `--model`, `--sandbox`, and `--dangerously-bypass-approvals-and-sandbox`.
 
-The wrapper forwards all normal Codex arguments, including `--sandbox`, `--model`, and `--dangerously-bypass-approvals-and-sandbox`.
+Without a Jev key, the wrapper still starts Codex and prints a fallback notice. Add the key when you want automatic routing.
 
-## Effort policy
+## Reasoning-effort policy
 
-Automatic effort is enabled by default. Set `JEV_CODEX_AUTO_EFFORT=0` to keep the effort selected in Codex's `/model` picker.
-
-The current mapping is:
+Automatic effort selection is enabled by default. The bridge maps Jev's `reasoning_required` score as follows:
 
 ```text
 reasoning_required < 0.30  -> low
@@ -54,20 +63,63 @@ reasoning_required < 0.85  -> high
 otherwise                   -> max
 ```
 
-The selected model's advertised capabilities win: an unsupported effort is normalized to a supported level.
+Set `JEV_CODEX_AUTO_EFFORT=0` to preserve the effort selected in Codex.
+
+The selected model's advertised capabilities take precedence. If a model does not support the requested effort, the bridge chooses the strongest supported lower level.
+
+## Configuration
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `JEV_API_KEY` | unset | Enables Jev routing |
+| `JEV_BASE_URL` | TypeSafe default | Overrides the Jev API endpoint |
+| `JEV_CODEX_AUTO_EFFORT` | `1` | Derives reasoning effort from Jev's score |
+| `JEV_CODEX_API_BASE_URL` | OpenAI API default | Overrides the OpenAI Responses endpoint |
+| `JEV_CODEX_CHATGPT_BASE_URL` | ChatGPT Codex default | Overrides the ChatGPT Codex endpoint |
+| `JEV_CODEX_DEBUG` | unset | Logs route metadata without prompts or keys when set to `1` |
+
+## Troubleshooting
+
+### `codex-jev: command not found`
+
+Run `npm link` from the cloned repository. If the command remains unavailable, add the npm global bin directory to your `PATH`:
+
+```bash
+npm prefix -g
+```
+
+On macOS with Homebrew, the directory is commonly `/opt/homebrew/bin`.
+
+### Codex is not installed or is not on `PATH`
+
+Run `codex --version` first. Install and authenticate the OpenAI Codex CLI, then run `codex-jev` again.
+
+### Codex starts without routing
+
+Check that the key file exists and has the expected variable:
+
+```bash
+ls -l ~/.jev-codex.env
+grep '^JEV_API_KEY=' ~/.jev-codex.env
+```
+
+The bridge fails open when Jev cannot be reached, so Codex can continue without automatic routing.
 
 ## Development
+
+Run the local checks from the repository root:
 
 ```bash
 npm test
 npm run smoke
+npm audit --omit=dev
 ```
 
-The tests use a fake Jev decision boundary and a local fake upstream; no API key is required for them.
+The tests use a fake Jev decision boundary and a local fake upstream. They do not require an API key.
 
 ## Security notes
 
 - Keep TypeSafe and Codex credentials outside the repository.
-- The bridge binds to `127.0.0.1` and does not log prompts or authorization headers.
-- Full-access Codex mode remains fully unrestricted; the bridge does not make it safer.
-- Jev receives the text needed to make the routing decision, so do not route sensitive prompts through it unless that data flow is acceptable.
+- The proxy binds to `127.0.0.1` and does not log prompts or authorization headers.
+- Full-access Codex mode remains unrestricted. The bridge does not make it safer.
+- Jev receives the text needed to make the routing decision. Do not route sensitive prompts through Jev unless that data flow is acceptable.

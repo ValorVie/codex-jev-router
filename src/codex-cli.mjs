@@ -69,7 +69,7 @@ export async function runCodex({ spawnImpl = spawn } = {}) {
   loadEnv();
   const command = resolveCodex();
   if (!command) {
-    process.stderr.write("[jev-codex] OpenAI Codex is not installed or is not on PATH.\n");
+    process.stderr.write("[codex-jev] OpenAI Codex is not installed or is not on PATH.\n");
     process.exitCode = 1;
     return;
   }
@@ -77,7 +77,7 @@ export async function runCodex({ spawnImpl = spawn } = {}) {
   const apiKey = process.env.JEV_API_KEY ?? process.env.TYPESAFE_API_KEY;
   if (!apiKey) {
     process.stderr.write(
-      "[jev-codex] no Jev API key found; running with routing fallback. " +
+      "[codex-jev] no Jev API key found; running with routing fallback. " +
       "Set JEV_API_KEY in ~/.jev-codex.env to enable routing.\n",
     );
   }
@@ -95,7 +95,7 @@ export async function runCodex({ spawnImpl = spawn } = {}) {
   const cleanup = () => proxy.close().catch(() => {});
   child.on("error", (error) => {
     cleanup();
-    process.stderr.write(`[jev-codex] could not start Codex: ${error.message}\n`);
+    process.stderr.write(`[codex-jev] could not start Codex: ${error.message}\n`);
     process.exitCode = 1;
   });
   child.on("exit", (code, signal) => {

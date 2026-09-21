@@ -12,7 +12,7 @@ import { routeTurn } from "./router-policy.mjs";
 const API_BASE_URL = "https://api.openai.com/v1";
 const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
 const debug = (...values) => {
-  if (process.env.JEV_CODEX_DEBUG === "1") console.error("[jev-codex]", ...values);
+  if (process.env.JEV_CODEX_DEBUG === "1") console.error("[codex-jev]", ...values);
 };
 
 const FALLBACK_CANDIDATES = normalizeCatalog({
