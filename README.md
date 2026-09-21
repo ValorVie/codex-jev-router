@@ -1,5 +1,8 @@
 # codex-jev-router
 
+[![CI](https://github.com/tiandee/codex-jev-router/actions/workflows/ci.yml/badge.svg)](https://github.com/tiandee/codex-jev-router/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Route OpenAI Codex CLI turns through Jev. Jev selects a suitable Codex model and reasoning effort for each fresh turn.
 
 The bridge runs locally. It starts a loopback Responses API proxy, sends the routing context to Jev, and forwards the request to Codex. If Jev is unavailable, Codex continues with its current model and effort.
@@ -11,7 +14,7 @@ The bridge runs locally. It starts a loopback Responses API proxy, sends the rou
 - Codex authentication configured
 - A Jev or TypeSafe API key
 
-The package is not published to npm. Install it from the public GitHub repository with the steps below.
+This project is open source under the MIT License. The package is not published to npm; install it from the public GitHub repository with the steps below.
 
 ## Install from source
 
@@ -105,7 +108,7 @@ Check that the key file exists and has the expected variable:
 
 ```bash
 ls -l ~/.jev-codex.env
-grep '^JEV_API_KEY=' ~/.jev-codex.env
+grep -q '^JEV_API_KEY=' ~/.jev-codex.env && echo 'JEV_API_KEY is configured'
 ```
 
 The bridge fails open when Jev cannot be reached, so Codex can continue without automatic routing.
@@ -122,9 +125,19 @@ npm audit --omit=dev
 
 The tests use a fake Jev decision boundary and a local fake upstream. They do not require an API key.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, required checks, and pull request expectations.
+
 ## Security notes
 
 - Keep TypeSafe and Codex credentials outside the repository.
 - The proxy binds to `127.0.0.1` and does not log prompts or authorization headers.
 - Full-access Codex mode remains unrestricted. The bridge does not make it safer.
 - Jev receives the text needed to make the routing decision. Do not route sensitive prompts through Jev unless that data flow is acceptable.
+
+To report a vulnerability privately, see [SECURITY.md](SECURITY.md).
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
