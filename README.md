@@ -34,8 +34,10 @@ To install this independent command without replacing the existing `jev-codex` c
 
 ```bash
 npm link
-jev-codex-bridge
+codex-jev
 ```
+
+`jev-codex-bridge` remains available as a backward-compatible alias.
 
 The wrapper forwards all normal Codex arguments, including `--sandbox`, `--model`, and `--dangerously-bypass-approvals-and-sandbox`.
 
