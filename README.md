@@ -52,6 +52,12 @@ The wrapper forwards normal Codex arguments, including `--model`, `--sandbox`, a
 
 Without a Jev key, the wrapper still starts Codex and prints a fallback notice. Add the key when you want automatic routing.
 
+For each fresh turn, the bridge adds a Codex commentary item with the selected model and reasoning effort. Codex renders this item with the same layout and colors as the rest of the conversation:
+
+```text
+🔹 [Jev] routed this turn to gpt-5.6-sol (max reasoning, confidence 0.95).
+```
+
 ## Reasoning-effort policy
 
 Automatic effort selection is enabled by default. The bridge maps Jev's `reasoning_required` score as follows:

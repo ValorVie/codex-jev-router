@@ -88,7 +88,7 @@ const writeResponseHeaders = (response, target) => {
 
 export function decisionEvent(route) {
   const confidence = route.confidence == null ? "" : `, confidence ${Number(route.confidence).toFixed(2)}`;
-  const text = `[Jev] routed this turn to ${route.model} (${route.effort} reasoning${confidence}).`;
+  const text = `🔹 [Jev] routed this turn to ${route.model} (${route.effort} reasoning${confidence}).`;
   const id = `jev-${randomUUID()}`;
   const item = {
     type: "message",
@@ -123,7 +123,6 @@ export async function startCodexProxy({
   route = async () => null,
   autoEffort = process.env.JEV_CODEX_AUTO_EFFORT !== "0",
   fetchImpl = globalThis.fetch,
-  onDecision = () => {},
 } = {}) {
   if (typeof fetchImpl !== "function") throw new Error("A fetch implementation is required");
 
@@ -209,7 +208,6 @@ export async function startCodexProxy({
             incomingEffort,
           });
           states.set(key, routing);
-          onDecision({ ...routing, promptLength: prompt.length });
         } else if (previous) {
           routing = previous;
         } else {
@@ -260,9 +258,46 @@ export async function startCodexProxy({
       response.statusCode = upstreamResponse.status;
       writeResponseHeaders(upstreamResponse, response);
       const contentType = upstreamResponse.headers.get("content-type") ?? "";
-      if (routing && contentType.includes("text/event-stream")) {
+      debug(
+        "response",
+        pathname,
+        upstreamResponse.status,
+        contentType || "<none>",
+        routing ? `${routing.model}/${routing.effort}` : "passthrough",
+      );
+      if (routing && upstreamResponse.ok && upstreamResponse.body) {
         response.removeHeader("content-length");
-        response.write(decisionEvent(routing));
+        const upstreamStream = Readable.fromWeb(upstreamResponse.body);
+        let pending = "";
+        let inspected = false;
+
+        upstreamStream.on("data", (chunk) => {
+          if (inspected) {
+            response.write(chunk);
+            return;
+          }
+
+          pending += chunk.toString();
+          const separator = pending.match(/\r?\n\r?\n/);
+          if (!separator) return;
+
+          const firstEnd = separator.index + separator[0].length;
+          const first = pending.slice(0, firstEnd);
+          const isSSE = /^(?:event|data):/m.test(first);
+          response.write(first);
+          if (isSSE) response.write(decisionEvent(routing));
+          debug("decision display", isSSE ? "inject" : "skip");
+          response.write(pending.slice(firstEnd));
+          pending = "";
+          inspected = true;
+        });
+        upstreamStream.on("end", () => {
+          if (!inspected) debug("decision display", "skip-no-frame");
+          if (!inspected && pending) response.write(pending);
+          response.end();
+        });
+        upstreamStream.on("error", (error) => response.destroy(error));
+        return;
       }
       if (upstreamResponse.body) {
         Readable.fromWeb(upstreamResponse.body).pipe(response);

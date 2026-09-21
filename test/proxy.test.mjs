@@ -43,7 +43,7 @@ test("serves a Jev model entry and rewrites model plus effort while preserving s
     }
 
     received.push(await readJson(request));
-    response.setHeader("content-type", "text/event-stream");
+    response.setHeader("content-type", "application/octet-stream");
     response.end('event: response.created\ndata: {"type":"response.created"}\n\n');
   });
   const upstreamBase = await listen(upstream);
@@ -73,8 +73,10 @@ test("serves a Jev model entry and rewrites model plus effort while preserving s
     const firstText = await firstResponse.text();
     assert.equal(received[0].model, "gpt-5.6-sol");
     assert.equal(received[0].reasoning.effort, "max");
+    assert.match(firstText, /🔹 \[Jev\] routed this turn/);
     assert.match(firstText, /\[Jev\] routed this turn to gpt-5\.6-sol/);
     assert.match(firstText, /response\.created/);
+    assert.ok(firstText.indexOf("response.created") < firstText.indexOf("[Jev]"));
 
     const modelsResponse = await fetch(`http://127.0.0.1:${proxy.port}/models`);
     const catalog = await modelsResponse.json();
