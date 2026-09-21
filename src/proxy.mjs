@@ -1,0 +1,289 @@
+import { createHash, randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import { Readable } from "node:stream";
+import {
+  AUTO_MODEL,
+  addAutoModel,
+  defaultModelForTier,
+  normalizeCatalog,
+} from "./catalog.mjs";
+import { routeTurn } from "./router-policy.mjs";
+
+const API_BASE_URL = "https://api.openai.com/v1";
+const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
+const debug = (...values) => {
+  if (process.env.JEV_CODEX_DEBUG === "1") console.error("[jev-codex]", ...values);
+};
+
+const FALLBACK_CANDIDATES = normalizeCatalog({
+  models: [
+    { slug: "gpt-5.6-luna", supported_reasoning_levels: ["low", "medium"], default_reasoning_level: "medium" },
+    { slug: "gpt-5.6-terra", supported_reasoning_levels: ["low", "medium", "high"], default_reasoning_level: "medium" },
+    { slug: "gpt-5.6-sol", supported_reasoning_levels: ["medium", "high", "max"], default_reasoning_level: "medium" },
+    { slug: "gpt-6-astra", supported_reasoning_levels: ["medium", "high", "xhigh", "max"], default_reasoning_level: "high" },
+  ],
+});
+
+const textOf = (content) => {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .filter((item) => item?.type === "text" || item?.type === "input_text")
+    .map((item) => item.text)
+    .filter(Boolean)
+    .join("\n");
+};
+
+const cleanPrompt = (text) =>
+  text
+    .replace(/<system[-_]reminder>[\s\S]*?<\/system[-_]reminder>/gi, "")
+    .replace(/<current_datetime>[\s\S]*?<\/current_datetime>/gi, "")
+    .replace(/<environment_context>[\s\S]*?<\/environment_context>/gi, "")
+    .trim();
+
+const isAuxiliaryPrompt = (prompt) => /^Generate a concise, single-line task title\b/i.test(prompt);
+
+/** Return the fresh user turn, or null when the request is a tool continuation. */
+export function newTurnPrompt(body) {
+  if (!Array.isArray(body?.input)) return null;
+  if (!body.input.some((item) => item?.type === "additional_tools")) return null;
+  for (const item of [...body.input].reverse()) {
+    if (item?.type === "function_call_output" || item?.type === "custom_tool_call_output") return null;
+    if (item?.role !== "user") continue;
+    const prompt = cleanPrompt(textOf(item.content));
+    if (prompt && !isAuxiliaryPrompt(prompt)) return prompt;
+  }
+  return null;
+}
+
+export function conversationKey(body) {
+  const stable =
+    body?.prompt_cache_key ??
+    body?.client_metadata?.["x-codex-turn-metadata"] ??
+    `${body?.instructions ?? ""}|${JSON.stringify(body?.input ?? [])}`;
+  return createHash("sha1").update(String(stable)).digest("hex").slice(0, 16);
+}
+
+const headerValue = (value) => (Array.isArray(value) ? value.join(", ") : value);
+
+function forwardedHeaders(headers) {
+  const output = {};
+  for (const [name, value] of Object.entries(headers)) {
+    if (["host", "content-length", "connection"].includes(name.toLowerCase())) continue;
+    const normalized = headerValue(value);
+    if (normalized !== undefined) output[name] = normalized;
+  }
+  return output;
+}
+
+const targetURL = (baseURL, requestURL) =>
+  `${String(baseURL).replace(/\/$/, "")}${requestURL || "/"}`;
+
+const writeResponseHeaders = (response, target) => {
+  for (const [name, value] of response.headers) {
+    if (["content-length", "transfer-encoding", "content-encoding", "connection"].includes(name)) continue;
+    target.setHeader(name, value);
+  }
+};
+
+export function decisionEvent(route) {
+  const confidence = route.confidence == null ? "" : `, confidence ${Number(route.confidence).toFixed(2)}`;
+  const text = `[Jev] routed this turn to ${route.model} (${route.effort} reasoning${confidence}).`;
+  const id = `jev-${randomUUID()}`;
+  const item = {
+    type: "message",
+    role: "assistant",
+    id,
+    phase: "commentary",
+    content: [{ type: "output_text", text }],
+  };
+  const events = [
+    { type: "response.output_item.added", item: { ...item, content: [] } },
+    { type: "response.output_text.delta", item_id: id, delta: text },
+    { type: "response.output_item.done", item },
+  ];
+  return events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
+}
+
+async function readRequestBody(request) {
+  const chunks = [];
+  for await (const chunk of request) chunks.push(chunk);
+  return Buffer.concat(chunks);
+}
+
+const isResponsesPath = (pathname) => /\/responses$/.test(pathname);
+const isModelsPath = (pathname) => /\/models$/.test(pathname);
+
+export async function startCodexProxy({
+  host = "127.0.0.1",
+  port = 0,
+  upstreamBaseUrl,
+  apiBaseUrl = process.env.JEV_CODEX_API_BASE_URL ?? API_BASE_URL,
+  chatgptBaseUrl = process.env.JEV_CODEX_CHATGPT_BASE_URL ?? CHATGPT_BASE_URL,
+  route = async () => null,
+  autoEffort = process.env.JEV_CODEX_AUTO_EFFORT !== "0",
+  fetchImpl = globalThis.fetch,
+  onDecision = () => {},
+} = {}) {
+  if (typeof fetchImpl !== "function") throw new Error("A fetch implementation is required");
+
+  const states = new Map();
+  let candidates = FALLBACK_CANDIDATES;
+  let catalogLoaded = false;
+  let catalogPromise;
+
+  const upstreamFor = (headers) => upstreamBaseUrl ?? (
+    headers["chatgpt-account-id"] ? chatgptBaseUrl : apiBaseUrl
+  );
+
+  const loadCatalog = async (headers) => {
+    if (catalogLoaded) return;
+    catalogPromise ??= (async () => {
+      try {
+        const catalogResponse = await fetchImpl(targetURL(upstreamFor(headers), "/models"), {
+          method: "GET",
+          headers: forwardedHeaders(headers),
+        });
+        if (!catalogResponse.ok) return;
+        const catalog = await catalogResponse.json();
+        debug("catalog raw", JSON.stringify((catalog.models ?? catalog.data ?? []).map((model) => ({
+          id: model.slug ?? model.id,
+          supported_in_api: model.supported_in_api,
+        }))));
+        const normalized = normalizeCatalog(catalog);
+        if (normalized.length) candidates = normalized;
+        catalogLoaded = true;
+        debug("catalog", candidates.map((candidate) => candidate.id).join(","));
+      } catch {
+        // The static catalog remains available as a fail-open fallback.
+        debug("catalog unavailable; using fallback candidates");
+      } finally {
+        catalogPromise = undefined;
+      }
+    })();
+    await catalogPromise;
+  };
+
+  const server = createServer((request, response) => {
+    void (async () => {
+      const requestURL = request.url ?? "/";
+      const pathname = new URL(requestURL, "http://jev-codex.local").pathname;
+      const input = await readRequestBody(request);
+      let body;
+      let routing;
+
+      if (request.method === "POST" && isResponsesPath(pathname) && input.length) {
+        try {
+          body = JSON.parse(input.toString());
+        } catch {
+          body = null;
+        }
+      }
+
+      if (body?.model === AUTO_MODEL) {
+        await loadCatalog(request.headers);
+        const key = conversationKey(body);
+        const previous = states.get(key);
+        const prompt = newTurnPrompt(body);
+        const initialModel = candidates.find((candidate) => candidate.tier === "fast")?.id ??
+          candidates[0]?.id ??
+          defaultModelForTier("fast");
+        const currentModel = previous?.model ?? (prompt
+          ? candidates.find((candidate) => candidate.tier === "strong")?.id ?? initialModel
+          : initialModel);
+        const incomingEffort = body.reasoning?.effort ?? "medium";
+
+        if (prompt) {
+          const contextTokens = Math.round(JSON.stringify(body.input ?? []).length / 4);
+          const decision = await route({
+            prompt,
+            currentModel,
+            contextTokens,
+            models: candidates,
+          });
+          routing = routeTurn({
+            currentModel,
+            candidates,
+            decision,
+            autoEffort,
+            incomingEffort,
+          });
+          states.set(key, routing);
+          onDecision({ ...routing, promptLength: prompt.length });
+        } else if (previous) {
+          routing = previous;
+        } else {
+          routing = routeTurn({
+            currentModel,
+            candidates,
+            decision: null,
+            autoEffort: false,
+            incomingEffort,
+          });
+        }
+
+        body.model = routing.model;
+        if (routing.effort) {
+          body.reasoning = { ...(body.reasoning ?? {}), effort: routing.effort };
+        }
+        debug("route", pathname, routing.model, routing.effort, routing.reason);
+      }
+
+      const selectedUpstream = upstreamFor(request.headers);
+      const upstreamResponse = await fetchImpl(targetURL(selectedUpstream, requestURL), {
+        method: request.method,
+        headers: forwardedHeaders(request.headers),
+        ...(input.length && !["GET", "HEAD"].includes(request.method)
+          ? { body: body ? JSON.stringify(body) : input }
+          : {}),
+      });
+      debug("upstream", pathname, upstreamResponse.status, body?.model ?? "passthrough");
+
+      if (isModelsPath(pathname) && upstreamResponse.ok) {
+        const catalog = await upstreamResponse.json();
+        debug("catalog raw", JSON.stringify((catalog.models ?? catalog.data ?? []).map((model) => ({
+          id: model.slug ?? model.id,
+          supported_in_api: model.supported_in_api,
+        }))));
+        candidates = normalizeCatalog(catalog);
+        const augmented = addAutoModel(catalog);
+        catalogLoaded = true;
+        const payload = Buffer.from(JSON.stringify(augmented));
+        response.statusCode = upstreamResponse.status;
+        writeResponseHeaders(upstreamResponse, response);
+        response.removeHeader("content-length");
+        response.setHeader("content-length", payload.length);
+        response.end(payload);
+        return;
+      }
+
+      response.statusCode = upstreamResponse.status;
+      writeResponseHeaders(upstreamResponse, response);
+      const contentType = upstreamResponse.headers.get("content-type") ?? "";
+      if (routing && contentType.includes("text/event-stream")) {
+        response.removeHeader("content-length");
+        response.write(decisionEvent(routing));
+      }
+      if (upstreamResponse.body) {
+        Readable.fromWeb(upstreamResponse.body).pipe(response);
+      } else {
+        response.end();
+      }
+    })().catch((error) => {
+      if (response.headersSent) {
+        response.destroy(error);
+        return;
+      }
+      response.writeHead(502, { "content-type": "application/json" });
+      response.end(JSON.stringify({ error: { type: "proxy_error", message: error.message } }));
+    });
+  });
+
+  await new Promise((resolve) => server.listen(port, host, resolve));
+  const address = server.address();
+  return {
+    host,
+    port: address.port,
+    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+  };
+}

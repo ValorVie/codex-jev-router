@@ -1,0 +1,27 @@
+{
+  "name": "codex-jev-router",
+  "version": "0.1.0",
+  "private": true,
+  "description": "An independent Jev routing bridge for OpenAI Codex CLI.",
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/tiandee/codex-jev-router.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tiandee/codex-jev-router/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "jev-codex-bridge": "./bin/jev-codex.mjs"
+  },
+  "scripts": {
+    "test": "node --test",
+    "smoke": "node ./scripts/smoke-local.mjs"
+  },
+  "dependencies": {
+    "@typesafe-ai/sdk": "0.6.0"
+  }
+}
