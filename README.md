@@ -10,9 +10,8 @@ The bridge runs locally. It starts a loopback Responses API proxy, sends the rou
 - OpenAI Codex CLI installed and available as `codex` on your `PATH`
 - Codex authentication configured
 - A Jev or TypeSafe API key
-- GitHub access to the [private repository](https://github.com/tiandee/codex-jev-router)
 
-The repository is private and the package is not published to npm. Each user must receive repository access before cloning it.
+The package is not published to npm. Install it from the public GitHub repository with the steps below.
 
 ## Install from source
 
