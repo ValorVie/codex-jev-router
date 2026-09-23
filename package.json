@@ -6,10 +6,10 @@
   "description": "An independent Jev routing bridge for OpenAI Codex CLI.",
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/tiandee/codex-jev-router.git"
+    "url": "git+ssh://git@github.com/ValorVie/codex-jev-router.git"
   },
   "bugs": {
-    "url": "https://github.com/tiandee/codex-jev-router/issues"
+    "url": "https://github.com/ValorVie/codex-jev-router/issues"
   },
   "type": "module",
   "engines": {
