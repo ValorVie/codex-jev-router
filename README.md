@@ -1,6 +1,6 @@
 # codex-jev-router
 
-[![CI](https://github.com/tiandee/codex-jev-router/actions/workflows/ci.yml/badge.svg)](https://github.com/tiandee/codex-jev-router/actions/workflows/ci.yml)
+[![CI](https://github.com/ValorVie/codex-jev-router/actions/workflows/ci.yml/badge.svg)](https://github.com/ValorVie/codex-jev-router/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Route OpenAI Codex CLI turns through Jev. Jev selects a suitable Codex model and reasoning effort for each fresh turn.
@@ -21,7 +21,7 @@ This project is open source under the MIT License. The package is not published 
 Clone the repository, install its dependencies, and create the global `codex-jev` command:
 
 ```bash
-git clone https://github.com/tiandee/codex-jev-router.git
+git clone https://github.com/ValorVie/codex-jev-router.git
 cd codex-jev-router
 npm install
 npm link
