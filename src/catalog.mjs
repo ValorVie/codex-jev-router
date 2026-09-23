@@ -1,5 +1,3 @@
-export const AUTO_MODEL = "jev-router";
-
 const DEFAULT_MODELS = {
   fast: "gpt-5.6-luna",
   balanced: "gpt-5.6-terra",
@@ -28,7 +26,7 @@ export function normalizeCatalog(catalog) {
   return rawModelsOf(catalog)
     .map((raw) => {
       const id = raw?.slug ?? raw?.id;
-      if (!id || id === AUTO_MODEL) return null;
+      if (!id) return null;
       const supportedEfforts = Array.isArray(raw.supported_reasoning_levels)
         ? raw.supported_reasoning_levels.map(effortOf).filter(Boolean)
         : [];
@@ -40,31 +38,6 @@ export function normalizeCatalog(catalog) {
       };
     })
     .filter((model) => model?.tier);
-}
-
-export function addAutoModel(catalog) {
-  const models = Array.isArray(catalog?.models)
-    ? catalog.models
-    : Array.isArray(catalog?.data)
-      ? catalog.data
-      : null;
-  if (!models || models.some((model) => (model?.slug ?? model?.id) === AUTO_MODEL)) return catalog;
-
-  const template = models[0];
-  if (!template) return catalog;
-  const auto = {
-    ...template,
-    slug: AUTO_MODEL,
-    ...(Object.hasOwn(template, "id") ? { id: AUTO_MODEL } : {}),
-    display_name: "Jev Router",
-    description: "Jev selects the model and reasoning effort for each new turn.",
-    visibility: "list",
-    supported_in_api: true,
-    priority: 0,
-  };
-
-  if (Array.isArray(catalog.models)) return { ...catalog, models: [auto, ...models] };
-  return { ...catalog, data: [auto, ...models] };
 }
 
 export const defaultModelForTier = (tier) => DEFAULT_MODELS[tier] ?? DEFAULT_MODELS.balanced;
