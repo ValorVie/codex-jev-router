@@ -11,7 +11,7 @@ The wrapper does not create a synthetic model or a separate model provider. Sess
 
 ## Prerequisites
 
-- Node.js 20 or newer
+- Node.js 26 or newer
 - OpenAI Codex CLI installed and available as `codex` on your `PATH`
 - Codex authentication configured
 - A Jev or TypeSafe API key
@@ -55,6 +55,8 @@ codex-jev
 The wrapper forwards normal Codex arguments, including `--model`, `--sandbox`, and `--dangerously-bypass-approvals-and-sandbox`.
 
 When no `--model` is supplied, Jev may rewrite the model and reasoning effort on the outgoing Responses API request. The Codex session itself keeps a normal Codex model and the built-in `openai` provider. If you explicitly pass `--model`, automatic model routing is disabled for that process and the selected model is forwarded unchanged.
+
+The bridge uses Node.js's built-in zstd decoder to read compressed Codex Responses requests before routing. It forwards rewritten requests as uncompressed JSON. Invalid or unsupported request encoding stops the request with an error instead of silently skipping routing. Requests with an explicit `--model` remain unchanged.
 
 Without a Jev key, the wrapper still starts Codex and prints a fallback notice. Add the key when you want automatic routing.
 

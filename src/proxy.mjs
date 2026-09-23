@@ -1,6 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
+import { promisify } from "node:util";
+import { zstdDecompress } from "node:zlib";
 import {
   defaultModelForTier,
   normalizeCatalog,
@@ -10,6 +12,9 @@ import { applyRoutingPool, routingPoolFromEnv } from "./routing-pool.mjs";
 
 const API_BASE_URL = "https://api.openai.com/v1";
 const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
+// ponytail: Cap whole-body parsing; add bounded streaming reads if real turns outgrow this ceiling.
+const MAX_ROUTABLE_BODY_BYTES = 128 * 1024 * 1024;
+const decompressZstd = promisify(zstdDecompress);
 const debug = (...values) => {
   if (process.env.JEV_CODEX_DEBUG === "1") console.error("[codex-jev]", ...values);
 };
@@ -68,7 +73,7 @@ const headerValue = (value) => (Array.isArray(value) ? value.join(", ") : value)
 function forwardedHeaders(headers) {
   const output = {};
   for (const [name, value] of Object.entries(headers)) {
-    if (["host", "content-length", "connection"].includes(name.toLowerCase())) continue;
+    if (["host", "content-length", "transfer-encoding", "connection"].includes(name.toLowerCase())) continue;
     const normalized = headerValue(value);
     if (normalized !== undefined) output[name] = normalized;
   }
@@ -108,6 +113,11 @@ async function readRequestBody(request) {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   return Buffer.concat(chunks);
+}
+
+function rejectRequest(response, status, message) {
+  response.writeHead(status, { "content-type": "application/json" });
+  response.end(JSON.stringify({ error: { type: "invalid_request", message } }));
 }
 
 const isResponsesPath = (pathname) => /\/responses$/.test(pathname);
@@ -173,11 +183,34 @@ export async function startCodexProxy({
       let body;
       let routing;
 
-      if (request.method === "POST" && isResponsesPath(pathname) && input.length) {
+      if (routeModels && request.method === "POST" && isResponsesPath(pathname)) {
+        const encoding = String(request.headers["content-encoding"] ?? "identity").trim().toLowerCase();
+        if (encoding !== "identity" && encoding !== "zstd") {
+          rejectRequest(response, 415, `Unsupported request content-encoding: ${encoding}`);
+          return;
+        }
+        if (input.length > MAX_ROUTABLE_BODY_BYTES) {
+          rejectRequest(response, 413, "Routing request body is too large");
+          return;
+        }
         try {
-          body = JSON.parse(input.toString());
-        } catch {
-          body = null;
+          const decoded = encoding === "zstd"
+            ? await decompressZstd(input, { maxOutputLength: MAX_ROUTABLE_BODY_BYTES })
+            : input;
+          if (decoded.length > MAX_ROUTABLE_BODY_BYTES) {
+            rejectRequest(response, 413, "Routing request body is too large");
+            return;
+          }
+          body = JSON.parse(decoded.toString());
+          if (!body || typeof body !== "object" || Array.isArray(body)) {
+            rejectRequest(response, 400, "Routing request body must be a JSON object");
+            return;
+          }
+        } catch (error) {
+          const tooLarge = error?.code === "ERR_BUFFER_TOO_LARGE";
+          rejectRequest(response, tooLarge ? 413 : 400,
+            tooLarge ? "Routing request body is too large" : "Invalid routing request body");
+          return;
         }
       }
 
@@ -229,9 +262,11 @@ export async function startCodexProxy({
       }
 
       const selectedUpstream = upstreamFor(request.headers);
+      const headers = forwardedHeaders(request.headers);
+      if (body) delete headers["content-encoding"];
       const upstreamResponse = await fetchImpl(targetURL(selectedUpstream, requestURL), {
         method: request.method,
-        headers: forwardedHeaders(request.headers),
+        headers,
         ...(input.length && !["GET", "HEAD"].includes(request.method)
           ? { body: body ? JSON.stringify(body) : input }
           : {}),

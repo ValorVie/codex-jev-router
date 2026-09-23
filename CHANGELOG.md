@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- Decode zstd-compressed Codex Responses requests before routing, and reject invalid request bodies instead of silently bypassing Jev.
+
 ### Changed
 
+- Require Node.js 26 or newer for the built-in zstd decoder.
 - Keep `codex-jev` sessions on Codex's built-in `openai` provider so normal Codex and Jev-routed runs share resume history.
 - Remove the synthetic `jev-router` model and rewrite model/effort only on outgoing Responses API requests.
 - Reject Responses WebSocket upgrades with HTTP 426 so Codex falls back to the HTTP/SSE proxy path.

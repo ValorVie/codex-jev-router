@@ -4,7 +4,7 @@ Thanks for helping improve `codex-jev-router`.
 
 ## Development setup
 
-Use Node.js 20 or newer:
+Use Node.js 26 or newer:
 
 ```bash
 npm ci

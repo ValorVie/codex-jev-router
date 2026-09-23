@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import { zstdCompressSync } from "node:zlib";
 import { startCodexProxy } from "../src/proxy.mjs";
 
 async function listen(server) {
@@ -105,6 +106,105 @@ test("rewrites a real Codex model plus effort while preserving streaming", async
   } finally {
     await proxy.close();
     await close(upstream);
+  }
+});
+
+test("routes a zstd-compressed Codex request as uncompressed JSON", async () => {
+  const forwarded = [];
+  const proxy = await startCodexProxy({
+    fetchImpl: async (url, options) => {
+      if (url.endsWith("/models")) return new Response(null, { status: 503 });
+      forwarded.push(options);
+      return new Response('event: response.created\ndata: {"type":"response.created"}\n\n', {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+    route: async () => ({
+      choice: "gpt-5.6-sol",
+      confidence: 0.95,
+      metrics: { reasoningRequired: 0.95 },
+    }),
+  });
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${proxy.port}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-encoding": "zstd" },
+      body: zstdCompressSync(Buffer.from(JSON.stringify({
+        model: "gpt-5.6-luna",
+        input: [
+          { type: "additional_tools", tools: [] },
+          { role: "user", content: [{ type: "input_text", text: "Implement the authentication flow" }] },
+        ],
+        reasoning: { effort: "medium" },
+      }))),
+    });
+    const responseText = await response.text();
+
+    assert.equal(response.status, 200);
+    const upstreamBody = JSON.parse(forwarded[0].body.toString());
+    assert.equal(upstreamBody.model, "gpt-5.6-sol");
+    assert.equal(upstreamBody.reasoning.effort, "max");
+    assert.equal(forwarded[0].headers["content-encoding"], undefined);
+    assert.match(responseText, /\[Jev\] routed this turn to gpt-5\.6-sol/);
+  } finally {
+    await proxy.close();
+  }
+});
+
+test("rejects invalid or unsupported compressed routed requests", async () => {
+  let upstreamCalls = 0;
+  const proxy = await startCodexProxy({
+    fetchImpl: async () => {
+      upstreamCalls += 1;
+      return new Response("unexpected upstream call", { status: 200 });
+    },
+  });
+
+  try {
+    for (const [encoding, body, status] of [
+      ["zstd", Buffer.from("not zstd"), 400],
+      ["br", Buffer.from("not brotli"), 415],
+    ]) {
+      const response = await fetch(`http://127.0.0.1:${proxy.port}/responses`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "content-encoding": encoding },
+        body,
+      });
+      await response.text();
+      assert.equal(response.status, status);
+    }
+    assert.equal(upstreamCalls, 0);
+  } finally {
+    await proxy.close();
+  }
+});
+
+test("explicit model forwards its compressed request unchanged", async () => {
+  const forwarded = [];
+  const proxy = await startCodexProxy({
+    routeModels: false,
+    fetchImpl: async (_url, options) => {
+      forwarded.push(options);
+      return new Response("ok", { status: 200 });
+    },
+  });
+  const body = zstdCompressSync(Buffer.from(JSON.stringify({ model: "gpt-5.6-luna", input: [] })));
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${proxy.port}/responses`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "content-encoding": "zstd" },
+      body,
+    });
+    await response.text();
+
+    assert.equal(response.status, 200);
+    assert.deepEqual(forwarded[0].body, body);
+    assert.equal(forwarded[0].headers["content-encoding"], "zstd");
+  } finally {
+    await proxy.close();
   }
 });
 
