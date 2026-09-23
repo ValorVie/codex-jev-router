@@ -5,8 +5,7 @@ import { spawn } from "node:child_process";
 import { askJev, createJevClient } from "./jev-client.mjs";
 import { startCodexProxy } from "./proxy.mjs";
 
-const PROVIDER = "jev";
-const AUTO_MODEL = "jev-router";
+const PROVIDER = "openai";
 
 export function loadEnv({ cwd = process.cwd(), home = homedir() } = {}) {
   for (const file of [
@@ -43,24 +42,18 @@ export function resolveCodex() {
   return null;
 }
 
-export function codexArgs(baseURL, args = []) {
-  const hasExplicitModel = args.some(
+export function hasExplicitModel(args = []) {
+  return args.some(
     (arg) => arg === "--model" || arg === "-m" || arg.startsWith("--model="),
   );
+}
+
+export function codexArgs(baseURL, args = []) {
   return [
-    ...(hasExplicitModel ? [] : ["--model", AUTO_MODEL]),
     "--config",
     `model_provider="${PROVIDER}"`,
     "--config",
-    `model_providers.${PROVIDER}.name="Jev Codex Bridge"`,
-    "--config",
-    `model_providers.${PROVIDER}.base_url="${baseURL}"`,
-    "--config",
-    `model_providers.${PROVIDER}.wire_api="responses"`,
-    "--config",
-    `model_providers.${PROVIDER}.requires_openai_auth=true`,
-    "--config",
-    `model_providers.${PROVIDER}.supports_websockets=false`,
+    `openai_base_url="${baseURL}"`,
     ...args,
   ];
 }
@@ -81,11 +74,14 @@ export async function runCodex({ spawnImpl = spawn } = {}) {
       "Set JEV_API_KEY in ~/.jev-codex.env to enable routing.\n",
     );
   }
+
+  const userArgs = process.argv.slice(2);
   const jev = apiKey ? createJevClient({ apiKey, baseURL: process.env.JEV_BASE_URL }) : null;
   const proxy = await startCodexProxy({
     route: (input) => askJev({ ...input, client: jev }),
+    routeModels: !hasExplicitModel(userArgs),
   });
-  const args = codexArgs(`http://${proxy.host}:${proxy.port}`, process.argv.slice(2));
+  const args = codexArgs(`http://${proxy.host}:${proxy.port}`, userArgs);
   const child = spawnImpl(command.file, [...command.prefix, ...args], {
     stdio: "inherit",
     shell: command.shell,

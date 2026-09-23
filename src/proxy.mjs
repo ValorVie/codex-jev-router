@@ -2,8 +2,6 @@ import { createHash, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { Readable } from "node:stream";
 import {
-  AUTO_MODEL,
-  addAutoModel,
   defaultModelForTier,
   normalizeCatalog,
 } from "./catalog.mjs";
@@ -122,6 +120,7 @@ export async function startCodexProxy({
   apiBaseUrl = process.env.JEV_CODEX_API_BASE_URL ?? API_BASE_URL,
   chatgptBaseUrl = process.env.JEV_CODEX_CHATGPT_BASE_URL ?? CHATGPT_BASE_URL,
   route = async () => null,
+  routeModels = true,
   autoEffort = process.env.JEV_CODEX_AUTO_EFFORT !== "0",
   fetchImpl = globalThis.fetch,
 } = {}) {
@@ -182,17 +181,16 @@ export async function startCodexProxy({
         }
       }
 
-      if (body?.model === AUTO_MODEL) {
+      if (body && routeModels) {
         await loadCatalog(request.headers);
         const key = conversationKey(body);
         const previous = states.get(key);
         const prompt = newTurnPrompt(body);
-        const initialModel = candidates.find((candidate) => candidate.tier === "fast")?.id ??
+        const initialModel = body.model ??
+          candidates.find((candidate) => candidate.tier === "fast")?.id ??
           candidates[0]?.id ??
           defaultModelForTier("fast");
-        const currentModel = previous?.model ?? (prompt
-          ? candidates.find((candidate) => candidate.tier === "strong")?.id ?? initialModel
-          : initialModel);
+        const currentModel = previous?.model ?? initialModel;
         const incomingEffort = body.reasoning?.effort ?? "medium";
 
         if (prompt) {
@@ -247,9 +245,8 @@ export async function startCodexProxy({
           supported_in_api: model.supported_in_api,
         }))));
         candidates = applyRoutingPool(normalizeCatalog(catalog), routingPool);
-        const augmented = addAutoModel(catalog);
         catalogLoaded = true;
-        const payload = Buffer.from(JSON.stringify(augmented));
+        const payload = Buffer.from(JSON.stringify(catalog));
         response.statusCode = upstreamResponse.status;
         writeResponseHeaders(upstreamResponse, response);
         response.removeHeader("content-length");
@@ -315,6 +312,17 @@ export async function startCodexProxy({
       response.writeHead(502, { "content-type": "application/json" });
       response.end(JSON.stringify({ error: { type: "proxy_error", message: error.message } }));
     });
+  });
+
+  // The built-in OpenAI provider prefers Responses over WebSocket. This bridge only
+  // proxies HTTP/SSE, so explicitly reject upgrades and let Codex fall back to HTTP.
+  server.on("upgrade", (_request, socket) => {
+    socket.end(
+      "HTTP/1.1 426 Upgrade Required\r\n" +
+        "Connection: close\r\n" +
+        "Content-Length: 0\r\n" +
+        "\r\n",
+    );
   });
 
   await new Promise((resolve) => server.listen(port, host, resolve));

@@ -42,7 +42,7 @@ try {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      model: "jev-router",
+      model: "gpt-5.6-sol",
       prompt_cache_key: "smoke",
       input: [
         { type: "additional_tools", tools: [] },

@@ -5,7 +5,9 @@
 
 Route OpenAI Codex CLI turns through Jev. Jev selects a suitable Codex model and reasoning effort for each fresh turn.
 
-The bridge runs locally. It starts a loopback Responses API proxy, sends the routing context to Jev, and forwards the request to Codex. If Jev is unavailable, Codex continues with its current model and effort.
+The bridge runs locally. It starts a loopback Responses API proxy, temporarily points Codex's built-in `openai` provider at that proxy, sends the routing context to Jev, and forwards the request upstream. If Jev is unavailable, Codex continues with its current model and effort.
+
+The wrapper does not create a synthetic model or a separate model provider. Sessions created by `codex` and `codex-jev` therefore use the same `openai` provider identity and appear in the same Codex resume history.
 
 ## Prerequisites
 
@@ -52,7 +54,28 @@ codex-jev
 
 The wrapper forwards normal Codex arguments, including `--model`, `--sandbox`, and `--dangerously-bypass-approvals-and-sandbox`.
 
+When no `--model` is supplied, Jev may rewrite the model and reasoning effort on the outgoing Responses API request. The Codex session itself keeps a normal Codex model and the built-in `openai` provider. If you explicitly pass `--model`, automatic model routing is disabled for that process and the selected model is forwarded unchanged.
+
 Without a Jev key, the wrapper still starts Codex and prints a fallback notice. Add the key when you want automatic routing.
+
+## Shared Codex session history
+
+`codex-jev` uses Codex's built-in `openai` provider and only overrides `openai_base_url` for the lifetime of the wrapper process. This keeps session metadata compatible with normal Codex:
+
+```bash
+# Create a session normally.
+codex
+
+# Resume the same OpenAI-provider sessions with Jev routing enabled.
+codex-jev resume --all
+
+# Sessions created through codex-jev are also visible to normal Codex.
+codex resume --all
+```
+
+The local proxy rejects Responses WebSocket upgrades with HTTP 426, which makes Codex use its HTTP/SSE fallback through the same proxy.
+
+Sessions created by older releases with `model_provider=jev` are not rewritten automatically; the shared history behavior applies to sessions created or resumed after this transport-only change.
 
 For each fresh turn, the bridge adds a Codex commentary item with the selected model and reasoning effort. Codex renders this item with the same layout and colors as the rest of the conversation:
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Keep `codex-jev` sessions on Codex's built-in `openai` provider so normal Codex and Jev-routed runs share resume history.
+- Remove the synthetic `jev-router` model and rewrite model/effort only on outgoing Responses API requests.
+- Reject Responses WebSocket upgrades with HTTP 426 so Codex falls back to the HTTP/SSE proxy path.
+- Preserve an explicitly selected `--model` without Jev model routing.
+
 ## 0.1.0 - 2026-09-21
 
 ### Features
