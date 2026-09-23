@@ -1,8 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  AUTO_MODEL,
-  addAutoModel,
   normalizeCatalog,
   tierForModel,
 } from "../src/catalog.mjs";
@@ -32,13 +30,4 @@ test("normalizes model capabilities from a Codex catalog", () => {
     supportedEfforts: ["medium", "high"],
     defaultEffort: "medium",
   });
-});
-
-test("adds a selectable Jev Router entry without changing the upstream catalog", () => {
-  const catalog = { models: [{ slug: "gpt-5.6-sol", display_name: "Sol" }] };
-  const augmented = addAutoModel(catalog);
-
-  assert.equal(augmented.models[0].slug, AUTO_MODEL);
-  assert.equal(augmented.models[0].display_name, "Jev Router");
-  assert.equal(catalog.models[0].slug, "gpt-5.6-sol");
 });
