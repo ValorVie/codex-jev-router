@@ -1,6 +1,6 @@
 # codex-jev-router
 
-[![CI](https://github.com/tiandee/codex-jev-router/actions/workflows/ci.yml/badge.svg)](https://github.com/tiandee/codex-jev-router/actions/workflows/ci.yml)
+[![CI](https://github.com/ValorVie/codex-jev-router/actions/workflows/ci.yml/badge.svg)](https://github.com/ValorVie/codex-jev-router/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Route OpenAI Codex CLI turns through Jev. Jev selects a suitable Codex model and reasoning effort for each fresh turn.
@@ -21,7 +21,7 @@ This project is open source under the MIT License. The package is not published 
 Clone the repository, install its dependencies, and create the global `codex-jev` command:
 
 ```bash
-git clone https://github.com/tiandee/codex-jev-router.git
+git clone https://github.com/ValorVie/codex-jev-router.git
 cd codex-jev-router
 npm install
 npm link
@@ -75,6 +75,27 @@ Set `JEV_CODEX_AUTO_EFFORT=0` to preserve the effort selected in Codex.
 
 The selected model's advertised capabilities take precedence. If a model does not support the requested effort, the bridge chooses the strongest supported lower level.
 
+## Routing pool controls
+
+By default, every Codex-advertised model and supported reasoning effort is eligible. You can restrict the candidate pool before Jev makes a decision.
+
+```bash
+# Only let Jev choose from these exact model IDs.
+JEV_CODEX_MODELS=gpt-5.6-luna,gpt-5.6-terra,gpt-5.6-sol
+
+# Only let Jev use these reasoning efforts.
+JEV_CODEX_EFFORTS=low,medium,high
+
+# Optional lower/upper effort bounds.
+JEV_CODEX_MIN_EFFORT=medium
+JEV_CODEX_MAX_EFFORT=high
+```
+
+The policy is applied to both the live Codex `/models` catalog and the static fallback catalog. A model is removed entirely if none of its advertised reasoning efforts remain after filtering. Jev only receives the remaining model candidates.
+
+If the configured policy removes every model/effort combination, the bridge fails with a clear configuration error instead of silently routing outside the requested pool.
+
+
 ## Configuration
 
 | Variable | Default | Purpose |
@@ -82,6 +103,10 @@ The selected model's advertised capabilities take precedence. If a model does no
 | `JEV_API_KEY` | unset | Enables Jev routing |
 | `JEV_BASE_URL` | TypeSafe default | Overrides the Jev API endpoint |
 | `JEV_CODEX_AUTO_EFFORT` | `1` | Derives reasoning effort from Jev's score |
+| `JEV_CODEX_MODELS` | unset | Comma-separated exact model allowlist presented to Jev |
+| `JEV_CODEX_EFFORTS` | unset | Comma-separated reasoning-effort allowlist |
+| `JEV_CODEX_MIN_EFFORT` | unset | Minimum allowed reasoning effort |
+| `JEV_CODEX_MAX_EFFORT` | unset | Maximum allowed reasoning effort |
 | `JEV_CODEX_API_BASE_URL` | OpenAI API default | Overrides the OpenAI Responses endpoint |
 | `JEV_CODEX_CHATGPT_BASE_URL` | ChatGPT Codex default | Overrides the ChatGPT Codex endpoint |
 | `JEV_CODEX_DEBUG` | unset | Logs route metadata without prompts or keys when set to `1` |

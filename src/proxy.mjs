@@ -8,6 +8,7 @@ import {
   normalizeCatalog,
 } from "./catalog.mjs";
 import { routeTurn } from "./router-policy.mjs";
+import { applyRoutingPool, routingPoolFromEnv } from "./routing-pool.mjs";
 
 const API_BASE_URL = "https://api.openai.com/v1";
 const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
@@ -127,7 +128,9 @@ export async function startCodexProxy({
   if (typeof fetchImpl !== "function") throw new Error("A fetch implementation is required");
 
   const states = new Map();
-  let candidates = FALLBACK_CANDIDATES;
+  const routingPool = routingPoolFromEnv();
+  let candidates = applyRoutingPool(FALLBACK_CANDIDATES, routingPool);
+  debug("routing pool", JSON.stringify(routingPool));
   let catalogLoaded = false;
   let catalogPromise;
 
@@ -150,7 +153,7 @@ export async function startCodexProxy({
           supported_in_api: model.supported_in_api,
         }))));
         const normalized = normalizeCatalog(catalog);
-        if (normalized.length) candidates = normalized;
+        if (normalized.length) candidates = applyRoutingPool(normalized, routingPool);
         catalogLoaded = true;
         debug("catalog", candidates.map((candidate) => candidate.id).join(","));
       } catch {
@@ -243,7 +246,7 @@ export async function startCodexProxy({
           id: model.slug ?? model.id,
           supported_in_api: model.supported_in_api,
         }))));
-        candidates = normalizeCatalog(catalog);
+        candidates = applyRoutingPool(normalizeCatalog(catalog), routingPool);
         const augmented = addAutoModel(catalog);
         catalogLoaded = true;
         const payload = Buffer.from(JSON.stringify(augmented));
