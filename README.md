@@ -75,6 +75,8 @@ codex resume --all
 
 The local proxy rejects Responses WebSocket upgrades with HTTP 426, which makes Codex use its HTTP/SSE fallback through the same proxy.
 
+Sessions created by older releases with `model_provider=jev` are not rewritten automatically; the shared history behavior applies to sessions created or resumed after this transport-only change.
+
 For each fresh turn, the bridge adds a Codex commentary item with the selected model and reasoning effort. Codex renders this item with the same layout and colors as the rest of the conversation:
 
 ```text
